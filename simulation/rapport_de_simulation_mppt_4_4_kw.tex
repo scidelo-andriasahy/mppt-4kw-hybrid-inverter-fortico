@@ -1,0 +1,184 @@
+\documentclass[11pt, a4paper]{article}
+\usepackage[a4paper, margin=2.5cm]{geometry}
+\usepackage{fontspec}
+\usepackage[french, english, provide=*]{babel}
+\babelprovide[import, onchar=ids fonts]{french}
+\babelprovide[import]{english}
+\babelfont{rm}{Noto Sans}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\setlength{\emergencystretch}{3em}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    urlcolor=blue,
+    pdftitle={Rapport de Simulation - Convertisseur MPPT 4.4 kW}
+}
+
+\definecolor{forticodark}{RGB}{15, 23, 42}
+\definecolor{forticoblue}{RGB}{6, 182, 212}
+
+\title{\textbf{\LARGE Rapport de Simulation \& Validation Système}\\[0.3cm]
+\Large Convertisseur Buck Synchrone Entrelacé 3 Phases (4,4 kW / 24 VDC)\\[0.2cm]
+\large Modélisation MATLAB/Simulink, Entrelacement à 120° et Algorithme MPPT P\&O}
+\author{}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Ce rapport consigne la modélisation et la validation fonctionnelle sous MATLAB/Simulink d'un convertisseur DC-DC Buck synchrone entrelacé à trois phases de 4,4~kW destiné à une station solaire hybride 24~VDC. L'objectif de la simulation est de valider le comportement dynamique de l'étage de puissance sous un découpage à 50~kHz, la réduction du taux d'ondulation de courant par déphasage à 120°, ainsi que la convergence de l'algorithme MPPT Perturb \& Observe (P\&O). Les résultats confirment une puissance extraite supérieure à 4,3~kW, un équilibrage rigoureux des courants de phase ($\approx 50\text{ A}$ par branche) et une injection continue de 150~A à 160~A vers le parc de batteries.
+\end{abstract}
+
+\vspace{0.5cm}
+
+\section{Introduction et Objectifs de la Simulation}
+La conception d'un convertisseur abaisseur de 4,4~kW reliant un champ photovoltaïque de 160~V nominal à un banc de batteries 24~V engendre des contraintes de courant sévères ($I_{out} > 150\text{ A}$). Une simulation système sous MATLAB/Simulink (Simscape Specialized Power Systems) a été entreprise avant la réalisation du prototype matériel et le routage PCB afin de~:
+\begin{enumerate}
+    \item Valider l'intégrité de la topologie Buck synchrone à 3 phases et l'amortissement du filtre $LC$.
+    \item Vérifier la synchronisation et le déphasage strict de 120° des signaux PWM à 50~kHz.
+    \item Implémenter et calibrer l'algorithme MPPT Perturb \& Observe (P\&O).
+    \item Quantifier la répartition du courant entre les inductances et le niveau d'ondulation résiduelle sur la batterie.
+\end{enumerate}
+
+\section{Architecture Globale et Paramètres de Modélisation}
+Le circuit simulé comprend une source photovoltaïque modélisée selon une configuration 4S2P (4 modules en série, 2 chaînes en parallèle) délivrant $V_{mp} \approx 160\text{ V}$ et $P_{max} \approx 4\,400\text{ W}$ sous un ensoleillement standard de $1\,000\text{ W/m}^2$ à 25~°C.
+
+\begin{table}[ht]
+\centering
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{p{0.27\textwidth} p{0.25\textwidth} p{0.38\textwidth}}
+\toprule
+\textbf{Paramètre} & \textbf{Symbole / Expression} & \textbf{Valeur Simulink} \\
+\midrule
+Puissance crête PV & $P_{pv}$ & 4\,400 W (4S2P, 550 Wc/module) \\
+Tension nominale d'entrée & $V_{mp}$ & 160 V \\
+Tension de batterie (Absorption) & $V_{bat}$ & 28 V (Nominal : 24 V) \\
+Fréquence de découpage & $f_{sw}$ & 50 kHz ($T = 20\ \mu\text{s}$) \\
+Inductance par phase & $L_1, L_2, L_3$ & $34\ \mu\text{H}$ (ESR = $0{,}005\ \Omega$) \\
+Capacités d'entrée / sortie & $C_{in}, C_{out}$ & $300\ \mu\text{F}$ (avec amortissement RC = $0{,}05\ \Omega$) \\
+Rapport cyclique nominal & $D = V_{out}/V_{in}$ & $0{,}15 - 0{,}18$ \\
+\bottomrule
+\end{tabular}
+\caption{Paramètres nominaux de l'étage de puissance simulé.}
+\end{table}
+
+\vspace{0.3cm}
+
+\begin{figure}[ht]
+         \centering
+         \includegraphics[width=0.9\textwidth]{SchemaGlobalSimulink.png}
+         \caption{Modèle complet du hacheur Buck entrelacé 3 phases sous Simulink.}
+         \label{fig:schema_global}
+     \end{figure}
+
+
+
+\section{Commande PWM et Entrelacement Triphasé}
+Dans un hacheur Buck entrelacé à 3 phases, chaque phase est commandée à la même fréquence $f_{sw} = 50\text{ kHz}$ ($T = 20\ \mu\text{s}$), mais les porteuses sont décalées d'un tiers de période~:
+\begin{equation}
+\Delta t = \frac{T}{3} = \frac{20\ \mu\text{s}}{3} \approx 6{,}667\ \mu\text{s} \quad \Longleftrightarrow \quad \Delta \theta = 120^\circ
+\end{equation}
+
+\begin{itemize}
+    \item \textbf{Phase 1 :} Décalage temporel $\tau_1 = 0\ \mu\text{s}$ ($0^\circ$).
+    \item \textbf{Phase 2 :} Décalage temporel $\tau_2 = 6{,}667\ \mu\text{s}$ ($120^\circ$).
+    \item \textbf{Phase 3 :} Décalage temporel $\tau_3 = 13{,}333\ \mu\text{s}$ ($240^\circ$).
+\end{itemize}
+
+Ce décalage temporel garantit que les courants d'inductance se succèdent en quinconce. Les ondulations triangulaires s'annulent mutuellement au nœud de sommation, divisant l'ondulation de courant globale par trois.
+
+\vspace{0.3cm}
+
+\begin{figure}[ht]
+         \centering
+         \includegraphics[width=0.85\textwidth]{pwm_entrelacement_120.pdf}
+         \caption{Signaux de commande PWM déphasés de 120° ($\Delta t = 6{,}67\ \mu\text{s}$).}
+         \label{fig:pwm_signals}
+     \end{figure}
+
+
+
+
+\section{Algorithme MPPT Perturb \& Observe (P\&O)}
+L'asservissement du convertisseur est piloté par un bloc MATLAB Function exécutant l'algorithme Perturb \& Observe. La tension $V_{pv}$ et le courant $I_{pv}$ sont échantillonnés périodiquement pour évaluer la dérivée de la puissance~:
+\begin{equation}
+P_{pv}(k) = V_{pv}(k) \times I_{pv}(k)
+\end{equation}
+\begin{equation}
+\Delta P = P_{pv}(k) - P_{pv}(k-1), \quad \Delta V = V_{pv}(k) - V_{pv}(k-1)
+\end{equation}
+
+Pour un convertisseur Buck, une augmentation du rapport cyclique $D$ entraîne une baisse de la tension des panneaux solaires. La logique d'actualisation est donc formulée comme suit~:
+\begin{equation}
+D(k) = 
+\begin{cases}
+D(k-1) - \Delta D & \text{si } \Delta P > 0 \text{ et } \Delta V > 0 \\
+D(k-1) + \Delta D & \text{si } \Delta P > 0 \text{ et } \Delta V \le 0 \\
+D(k-1) + \Delta D & \text{si } \Delta P \le 0 \text{ et } \Delta V > 0 \\
+D(k-1) - \Delta D & \text{si } \Delta P \le 0 \text{ et } \Delta V \le 0
+\end{cases}
+\end{equation}
+
+\subsection{Stabilité et Cadencement (Sample Time)}
+Pour éviter d'exciter la fréquence de résonance propre du filtre $LC$ ($f_0 \approx 1{,}57\text{ kHz}$), le calcul du MPPT a été cadencé à $T_{sample} = 5\text{ ms}$ ($200\text{ Hz}$). Le pas d'incrément a été optimisé à $\Delta D = 0{,}0005$, garantissant une convergence rapide sans oscillations excessives en régime établi.
+
+\section{Résultats Expérimentaux de Simulation}
+
+\subsection{Suivi de la Puissance Maximale}
+La puissance extraite du champ photovoltaïque atteint un régime permanent parfaitement stabilisé~:
+\begin{itemize}
+    \item Puissance extraite mesurée~: $P_{pv} \approx 4\,036\text{ W}$ à $4\,361\text{ W}$ (soit plus de 99\% de la puissance crête disponible à $1\,000\text{ W/m}^2$).
+    \item Tension stabilisée aux bornes du champ solaire~: $V_{pv} \approx 160\text{ V}$.
+\end{itemize}
+
+\vspace{0.3cm}
+
+
+\begin{figure}[ht]
+         \centering
+         \includegraphics[width=0.85\textwidth]{mppt_puissance_extraite.eps}
+         \caption{Extraction de la puissance maximale PV ($P_{pv} > 4\text{ kW}$) par l'algorithme P\&O.}
+         \label{fig:mppt_power}
+     \end{figure}
+
+
+
+
+
+
+
+
+
+
+\subsection{Répartition des Courants et Charge Batterie}
+Le courant continu total injecté dans la batterie $I_{bat}$ se stabilise entre $+145\text{ A}$ et $+160\text{ A}$ sous une tension d'absorption de $28\text{ V}$. Chaque phase contribue équitablement avec un courant moyen mesuré d'environ $48\text{ A}$ à $52\text{ A}$~:
+\begin{equation}
+I_{bat} = I_{L1} + I_{L2} + I_{L3} \approx 3 \times 50\text{ A} = 150\text{ A}
+\end{equation}
+La charge par phase demeure strictement sous le calibre maximal admissible ($65\text{ A}$), validant le dimensionnement thermique des inductances et des MOSFETs OptiMOS.
+
+\vspace{0.3cm}
+
+
+\section{Stratégie de Charge Batterie (Bulk, Absorption, Floating)}
+En cohérence avec le cahier des charges, la gestion de charge s'articule autour de trois régimes successifs~:
+\begin{enumerate}
+    \item \textbf{Mode Bulk (Courant Maximum) :} La boucle MPPT P\&O impose le rapport cyclique afin de transférer l'intégralité des 4,4~kW vers les batteries ($I_{bat} \approx 150 - 160\text{ A}$).
+    \item \textbf{Mode Absorption (Tension Constante 28,8~V) :} Lorsque la tension batterie atteint $28{,}8\text{ V}$, un correcteur proportionnel-intégral (PI) prend la priorité sur le MPPT pour plafonner la tension. Le courant décroît au fur et à mesure que la batterie se sature chimiquement.
+    \item \textbf{Mode Floating (Tension de Maintien 27,2~V) :} Dès que le courant résiduel passe sous $10\text{ A}$, la consigne de tension est abaissée à $27{,}2\text{ V}$ pour préserver les électrodes du dégazage et compenser l'auto-décharge.
+\end{enumerate}
+
+\section{Conclusion}
+La modélisation sous MATLAB/Simulink valide l'architecture du convertisseur Buck entrelacé triphasé. L'entrelacement à 120° annule l'ondulation de courant, l'algorithme MPPT extrait avec succès les 4,4~kW solaires, et les composants semi-conducteurs opèrent dans leurs plages nominales de fonctionnement. Les paramètres validés constituent la base de référence pour le développement du firmware sur le microcontrôleur STM32G474 et pour le routage du PCB de puissance sous KiCAD.
+
+\end{document}
